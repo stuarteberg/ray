@@ -504,8 +504,12 @@ class Rag(Graph):
                 num_epochs % 2 == 1 and priority_mode == 'mixed':
                 cl = kwargs.get('classifier', RandomForest())
                 cl = cl.fit(data[0], data[1][:,label_type_keys[labeling_mode]])
-                if type(cl) == RandomForest:
-                    logging.info('classifier oob error: %.2f'%cl.oob)
+                if isinstance(cl, RandomForest):
+                    try:
+                        oob = cl.oob_score_
+                    except AttributeError:
+                        oob = cl.oob
+                    logging.info('classifier oob error: %.2f' % oob)
                 g.merge_priority_function = active_function(feature_map, cl)
             elif priority_mode == 'random' or \
                 (priority_mode == 'active' and num_epochs == 0):

@@ -88,14 +88,17 @@ if __name__ == '__main__':
         default=True, help='Disable nozeros mode.')
     parser.add_argument('-w', '--watershed-file', type=str,
         help='Use a pre-computed watershed segmentation.')
+    parser.add_argument('--seed-cc-threshold', type=int, default=0,
+        help='Connected component threshold in seed creation')
+    parser.add_argument('-C', '--classifier-kwargs', metavar='KWARGS',
+        help='Keyword arguments to pass to the classifier __init__ function.',
+        default="{'n_estimators':100,'criterion':'entropy','max_depth':20}")
     parser.add_argument('-o', '--output-dir', type=str, default='./',
         metavar='DIR', help='Directory for all output')
     parser.add_argument('-x', '--experiment-name', type=str,
         metavar='EXPT_NAME',
         help='Name of the experiment -- will be used as the base name for ' +\
             'all outputs', required=True)
-    parser.add_argument('--seed-cc-threshold', type=int, default=0,
-        help='Connected component threshold in seed creation')
     args = parser.parse_args()
 
     experiment_prefix = os.path.join(args.output_dir, args.experiment_name)
@@ -183,6 +186,10 @@ if __name__ == '__main__':
             experiment_prefix + args.training_data_extension + '.' + str(i),
             info=info_string)
     MasterLogger.info("Training classifier")
-    rf = classify.RandomForest().fit(d[0], d[1][:,0], args.num_examples)
+    classifier_kwargs = eval(args.classifier_kwargs)
+    if args.num_examples is not None:
+        classifier_kwargs['num_train_examples'] = args.num_examples
+    rf = classify.RandomForest(**classifier_kwargs)
+    rf = rf.fit(d[0], d[1][:,0], args.num_examples)
     MasterLogger.info("Saving classifier to disk")
-    rf.save_to_disk(experiment_prefix + args.classifier_extension)
+    classify.save_classifier(rf, experiment_prefix + args.classifier_extension)

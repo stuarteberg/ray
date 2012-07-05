@@ -37,15 +37,23 @@ try:
 except ImportError:
     logging.warning('scikits.learn not found. SVC, Regression not available.')
 
+try:
+    from sklearn.ensemble import RandomForestClassifier
+    scikits_rf_available = True
+except ImportError:
+    logging.warning('sklearn.ensemble.RandomForest not available.')
+    scikits_rf_available = False
+
 from evaluate import xlogx
 try:
-    from vigra.learning import RandomForest as VigraRandomForest
+    from vigra.learning import RandomForest as VigraRF
     from vigra.__version__ import version as vigra_version
     vigra_version = tuple(map(int, vigra_version.split('.')))
+    vigra_rf_available = True
 except ImportError:
     logging.warning(' vigra library is not available. '+
         'Cannot use random forest classifier.')
-    pass
+    vigra_rf_available = False
 
 # local imports
 import morpho
@@ -795,19 +803,32 @@ def h5py_stack(fn):
         print except_inst
         raise
     return a
-    
-class RandomForest(object):
-    def __init__(self, ntrees=255, use_feature_importance=False, 
-            sample_classes_individually=False):
-        self.rf = VigraRandomForest(treeCount=ntrees, 
-            sample_classes_individually=sample_classes_individually)
-        self.use_feature_importance = use_feature_importance
-        self.sample_classes_individually = sample_classes_individually
 
-    def fit(self, features, labels, num_train_examples=None, **kwargs):
+def save_classifier(cl, fn, *args, **kwargs):
+    if isinstance(cl, VigraRandomForest):
+        cl.save_to_disk(fn, *args, **kwargs)
+    elif isinstance(cl, (RandomForestClassifier, SVC, LogisticRegression)):
+        if len(args) == 0 and not kwargs.has_key('protocol'):
+            args = [-1] # make HIGHEST_PROTOCOL default for pickling
+        with f as open(fn, 'w'):
+            pck.dump(cl, fn, *args, **kwargs)
+    else:
+        raise ValueError('cannot save a classifier of type %s' % type(cl))
+
+class VigraRandomForest(object):
+    def __init__(self, n_estimators=100, compute_importances=False, 
+            sample_classes_individually=False, num_train_examples=None,
+            **kwargs):
+        self.rf = VigraRF(treeCount=n_estimators, 
+            sample_classes_individually=sample_classes_individually)
+        self.use_feature_importance = compute_importances
+        self.sample_classes_individually = sample_classes_individually
+        self.num_train_examples = num_train_examples
+
+    def fit(self, features, labels):
         idxs = range(len(features))
         shuffle(idxs)
-        idxs = idxs[:num_train_examples]
+        idxs = idxs[:self.num_train_examples]
         features = self.check_features_vector(features[idxs])
         labels = self.check_labels_vector(labels[idxs])
         if self.use_feature_importance:
@@ -858,6 +879,11 @@ class RandomForest(object):
         attrs = [g for g in groups if not g.startswith(rfgroupname)]
         for attr in attrs:
             setattr(self, attr, array(f[attr]))
+
+if scikits_rf_available:
+    RandomForest = RandomForestClassifier
+elif vigra_rf_available:
+    RandomForest = VigraRandomForest
 
 def read_rf_info(fn):
     f = h5py.File(fn)
