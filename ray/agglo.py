@@ -32,7 +32,7 @@ from ncut import ncutW
 from mergequeue import MergeQueue
 from evaluate import contingency_table, split_vi, xlogx
 from classify import NullFeatureManager, MomentsFeatureManager, \
-    HistogramFeatureManager, DefaultRandomForest,
+    HistogramFeatureManager, DefaultRandomForest, \
     unique_learning_data_elements, concatenate_data_elements
 
 arguments = argparse.ArgumentParser(add_help=False)

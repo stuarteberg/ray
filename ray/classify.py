@@ -753,7 +753,7 @@ class DefaultRandomForest(RandomForestClassifier):
             kwargs['criterion'] = 'entropy'
         if len(args) < 3:
             kwargs['max_depth'] = 20
-        super(RandomForestClassifier, self).__init__(*args, **kwargs)
+        super(DefaultRandomForest, self).__init__(*args, **kwargs)
 
 def save_classifier(cl, fn, *args, **kwargs):
     """Save a classifier cl to a file fn.
