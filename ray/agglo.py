@@ -32,8 +32,8 @@ from ncut import ncutW
 from mergequeue import MergeQueue
 from evaluate import contingency_table, split_vi, xlogx
 from classify import NullFeatureManager, MomentsFeatureManager, \
-    HistogramFeatureManager, RandomForest, unique_learning_data_elements, \
-    concatenate_data_elements
+    HistogramFeatureManager, DefaultRandomForest,
+    unique_learning_data_elements, concatenate_data_elements
 
 arguments = argparse.ArgumentParser(add_help=False)
 arggroup = arguments.add_argument_group('Agglomeration options')
@@ -502,13 +502,9 @@ class Rag(Graph):
                 g.merge_priority_function = boundary_mean
             elif num_epochs > 0 and priority_mode == 'active' or \
                 num_epochs % 2 == 1 and priority_mode == 'mixed':
-                cl = kwargs.get('classifier', RandomForest())
+                cl = kwargs.get('classifier', DefaultRandomForest())
                 cl = cl.fit(data[0], data[1][:,label_type_keys[labeling_mode]])
-                if isinstance(cl, RandomForest):
-                    try:
-                        oob = cl.oob_score_
-                    except AttributeError:
-                        oob = cl.oob
+                if hasattr(cl, 'oob_score_'):
                     logging.info('classifier oob error: %.2f' % oob)
                 g.merge_priority_function = active_function(feature_map, cl)
             elif priority_mode == 'random' or \

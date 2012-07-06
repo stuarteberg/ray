@@ -44,16 +44,14 @@ except ImportError:
     logging.warning('sklearn.ensemble.RandomForest not available.')
     scikits_rf_available = False
 
-from evaluate import xlogx
 try:
-    from vigra.learning import RandomForest as VigraRF
-    from vigra.__version__ import version as vigra_version
-    vigra_version = tuple(map(int, vigra_version.split('.')))
-    vigra_rf_available = True
+    from sklearn.externals import joblib
+    joblib_available = True
 except ImportError:
-    logging.warning(' vigra library is not available. '+
-        'Cannot use random forest classifier.')
-    vigra_rf_available = False
+    logging.warning('joblib persistence (a pickle replacement) not available.')
+    joblib_available = False
+
+from evaluate import xlogx
 
 # local imports
 import morpho
@@ -742,152 +740,49 @@ class CompositeFeatureManager(NullFeatureManager):
         if cache2 is None: cache2 = g.node[n2][self.default_cache]
         features = []
         for i, child in enumerate(self.children):
-            features.append(
-                child.compute_difference_features(g, n1, n2, cache1[i], cache2[i])
-            )
+            features.append(child.compute_difference_features(g, n1, n2,
+                cache1[i], cache2[i]))
         return concatenate(features)
 
-        
-    
-def mean_and_sem(g, n1, n2):
-    bvals = g.probabilities_r[list(g[n1][n2]['boundary'])]
-    return array([mean(bvals), sem(bvals)]).reshape(1,2)
 
-def mean_sem_and_n_from_cache_dict(d):
-    n, s1, s2 = d['feature-cache'][:3]
-    m = s1/n
-    v = 0 if n==1 else max(0, s2/(n-1) - n/(n-1)*m*m)
-    s = sqrt(v/n)
-    return m, s, n
-
-def skew_from_cache_dict(d):
-    n, s1, s2, s3 = d['feature-cache'][:4]
-    m1 = s1/n
-    k1 = m1
-    m2 = s2/n
-    k2 = m2 - m1*m1
-    m3 = s3/n
-    k3 = m3 - 3*m2*m1 + 2*m1*m1*m1
-    return k3 * k2**(-1.5)
-
-def feature_set_a(g, n1, n2):
-    """Return the mean, SEM, and size of n1, n2, and the n1-n2 boundary in g.
-    
-    n1 is defined as the smaller of the two nodes, so the labels are swapped
-    accordingly if necessary before computing the statistics.
-    
-    SEM: standard error of the mean, equal to sqrt(var/n)
-    """
-    if len(g.node[n1]['extent']) > len(g.node[n2]['extent']):
-        n1, n2 = n2, n1
-    mb, sb, lb = mean_sem_and_n_from_cache_dict(g[n1][n2])
-    m1, s1, l1 = mean_sem_and_n_from_cache_dict(g.node[n1])
-    m2, s2, l2 = mean_sem_and_n_from_cache_dict(g.node[n2])
-    return array([mb, sb, lb, m1, s1, l1, m2, s2, l2]).reshape(1,9)
-
-def node_feature_set_a(g, n):
-    """Return the mean, standard deviation, SEM, size, and skewness of n.
-
-    Uses the probability of boundary within n.
-    """
-    d = g.node[n]
-    m, s, l = mean_sem_and_n_from_cache_dict(d)
-    stdev = s*sqrt(l)
-    skew = skew_from_cache_dict(d)
-    return array([m, stdev, s, l, skew])
-
-def h5py_stack(fn):
-    try:
-        a = array(h5py.File(fn, 'r')['stack'])
-    except Exception as except_inst:
-        print except_inst
-        raise
-    return a
+class DefaultRandomForest(RandomForestClassifier):
+    def __init__(self, *args, **kwargs):
+        if len(args) < 1:
+            kwargs['n_estimators'] = 100
+        if len(args) < 2:
+            kwargs['criterion'] = 'entropy'
+        if len(args) < 3:
+            kwargs['max_depth'] = 20
+        super(RandomForestClassifier, self).__init__(*args, **kwargs)
 
 def save_classifier(cl, fn, *args, **kwargs):
-    if isinstance(cl, VigraRandomForest):
-        cl.save_to_disk(fn, *args, **kwargs)
-    elif isinstance(cl, (RandomForestClassifier, SVC, LogisticRegression)):
-        if len(args) == 0 and not kwargs.has_key('protocol'):
-            args = [-1] # make HIGHEST_PROTOCOL default for pickling
-        with f as open(fn, 'w'):
-            pck.dump(cl, fn, *args, **kwargs)
+    """Save a classifier cl to a file fn.
+
+    By default, this saves to a joblib file with compression = 3.
+
+    If joblib is not available, it will try cPickle.
+    """
+    if isinstance(cl, (RandomForestClassifier, SVC, LogisticRegression)):
+        if joblib_available:
+            if len(args) == 0 and not kwargs.has_key('compress'):
+                kwargs['compress'] = 3
+            joblib.dump(cl, fn, **kwargs)
+        else:
+            if len(args) == 0 and not kwargs.has_key('protocol'):
+                args = [-1] # make HIGHEST_PROTOCOL default for pickling
+            with open(fn, 'w') as f:
+                pck.dump(cl, f, *args, **kwargs)
     else:
         raise ValueError('cannot save a classifier of type %s' % type(cl))
 
-class VigraRandomForest(object):
-    def __init__(self, n_estimators=100, compute_importances=False, 
-            sample_classes_individually=False, num_train_examples=None,
-            **kwargs):
-        self.rf = VigraRF(treeCount=n_estimators, 
-            sample_classes_individually=sample_classes_individually)
-        self.use_feature_importance = compute_importances
-        self.sample_classes_individually = sample_classes_individually
-        self.num_train_examples = num_train_examples
-
-    def fit(self, features, labels):
-        idxs = range(len(features))
-        shuffle(idxs)
-        idxs = idxs[:self.num_train_examples]
-        features = self.check_features_vector(features[idxs])
-        labels = self.check_labels_vector(labels[idxs])
-        if self.use_feature_importance:
-            self.oob, self.feature_importance = \
-                        self.rf.learnRFWithFeatureSelection(features, labels)
-        else:
-            self.oob = self.rf.learnRF(features, labels)
-        return self
-
-    def predict_proba(self, features):
-        features = self.check_features_vector(features)
-        return self.rf.predictProbabilities(features)
-
-    def predict(self, features):
-        features = self.check_features_vector(features)
-        return self.rf.predictLabels(features)
-
-    def check_features_vector(self, features):
-        if features.dtype != float32:
-            features = features.astype(float32)
-        if features.ndim == 1:
-            features = features[newaxis,:]
-        return features
-
-    def check_labels_vector(self, labels):
-        if labels.dtype != uint32:
-            if len(unique(labels[labels < 0])) == 1 and not (labels==0).any():
-                labels[labels < 0] = 0
-            else:
-                labels = labels + labels.min()
-            labels = labels.astype(uint32)
-        labels = labels.reshape((labels.size, 1))
-        return labels
-
-    def save_to_disk(self, fn, rfgroupname='rf', overwrite=True):
-        self.rf.writeHDF5(fn, rfgroupname, overwrite)
-        attr_list = ['oob', 'feature_importance', 'use_feature_importance']
-        f = h5py.File(fn)
-        for attr in attr_list:
-            if hasattr(self, attr):
-                f[attr] = getattr(self, attr)
-
-    def load_from_disk(self, fn, rfgroupname='rf'):
-        self.rf = VigraRandomForest(fn, rfgroupname)
-        f = h5py.File(fn, 'r')
-        groups = []
-        f.visit(groups.append)
-        attrs = [g for g in groups if not g.startswith(rfgroupname)]
-        for attr in attrs:
-            setattr(self, attr, array(f[attr]))
-
-if scikits_rf_available:
-    RandomForest = RandomForestClassifier
-elif vigra_rf_available:
-    RandomForest = VigraRandomForest
-
-def read_rf_info(fn):
-    f = h5py.File(fn)
-    return map(array, [f['oob'], f['feature_importance']])
+def load_classifier(fn):
+    """Load a classifier from a file fn."""
+    if joblib_available:
+        return joblib.load(fn)
+    else:
+        with open(fn, 'r') as f:
+            cl = pck.load(f)
+        return cl
 
 def concatenate_data_elements(alldata):
     """Return one big learning set from a list of learning sets.
@@ -909,6 +804,15 @@ def unique_learning_data_elements(alldata):
     )
     def get_uniques(ar): return ar[uids]
     return map(get_uniques, [f, l, w, h])
+
+def sample_training_data(data, num_samples):
+    num_total = len(data[0])
+    if num_samples is None or num_samples >= num_total:
+        return data
+    idxs = range(num_total)
+    shuffle(idxs)
+    idxs = idxs[:num_samples]
+    return [d[idxs] for d in data]
 
 def save_training_data_to_disk(data, fn, names=None, info='N/A'):
     if names is None:
