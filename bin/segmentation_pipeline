@@ -272,7 +272,7 @@ def flow_generate_boundary_prediction_ilastik06(options, image_stack, experiment
     imio.write_ilastik_batch_volume(image_stack, str(experimentprefix + ".h5"))
     #absStackPath = os.getcwd() + '/' + str(experimentprefix + ".h5")
 
-    ilastik_command = "pixelClassificationWorkflowMainHeadless.py"
+    ilastik_command = "ilastik_headless"
     ilastik_command += " --project=" + options.ilpfile
     ilastik_command += " --batch_output_suffix=.h5_boundpred"
     ilastik_command += " --batch_export_dir=" + output_dir
